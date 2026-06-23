@@ -32,7 +32,7 @@
     font-family: 'Noto Sans TC', sans-serif;
     font-weight: 300;
     min-height: 100vh;
-    padding-bottom: 120px;
+    padding-bottom: 150px;
   }
 
   /* Background texture */
@@ -1047,6 +1047,22 @@
   .total-unit {
     font-size: 12px;
     color: var(--text-light);
+  }
+
+  .cta-area {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .line-auto-hint {
+    font-size: 11px;
+    color: var(--text-light);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-align: right;
   }
 
   .cta-btn {
@@ -2169,9 +2185,10 @@
       <button class="detail-toggle" id="detailToggle" onclick="toggleDetail()" style="display:none">查看明細 ▾</button>
       <div class="detail-list" id="detailList"></div>
     </div>
-    <a class="cta-btn" href="https://lin.ee/UfUQMar" target="_blank">
-      加入 LINE<br><span style="font-size:10px;opacity:.7;letter-spacing:.03em">開始訂製</span>
-    </a>
+    <div class="cta-area">
+      <div class="line-auto-hint">✓ 點擊後會自動將試算內容帶入LINE訊息</div>
+      <button class="cta-btn" type="button" onclick="sendQuoteToLine()">📩 將這份報價傳送到LINE</button>
+    </div>
   </div>
 </div>
 
@@ -2405,6 +2422,113 @@
   function updateUrgentDisplay() {
     document.getElementById('urgentQtyDisplay').textContent = state.urgentQty;
     document.getElementById('urgentTotalDisplay').textContent = (state.urgentQty * 1000).toLocaleString();
+  }
+
+  const LINE_OFFICIAL_ID = '@187glqwo';
+  const LINE_FALLBACK_URL = 'https://lin.ee/UfUQMar';
+
+  function getCurrentQuoteData() {
+    let total = 0;
+    const drawingItems = [];
+    const productItems = [];
+
+    const drawingNames = { head: '頭部', fullbody: '全身', paw: '手掌' };
+    for (const [id, data] of Object.entries(state.drawing)) {
+      const subtotal = data.price * data.qty;
+      total += subtotal;
+      drawingItems.push({ name: drawingNames[id] || id, qty: data.qty, price: subtotal });
+    }
+
+    for (const [prodId, data] of Object.entries(state.products)) {
+      const subtotal = data.price * data.qty;
+      total += subtotal;
+      productItems.push({ name: formatLineName(data.name, data.variantLabel, data.qty), price: subtotal });
+    }
+
+    for (const [prodId, variants] of Object.entries(state.multiVariants)) {
+      const el = document.getElementById(prodId);
+      const prodName = el ? el.querySelector('.product-name').textContent : prodId;
+      for (const data of Object.values(variants)) {
+        if (data.qty > 0) {
+          const subtotal = data.price * data.qty;
+          total += subtotal;
+          productItems.push({ name: formatLineName(prodName, data.label, data.qty), price: subtotal });
+        }
+      }
+    }
+
+    const extraNames = { 'blanket-double': '加厚雙層羊羔絨升級' };
+    for (const [id, data] of Object.entries(state.extras)) {
+      const price = typeof data === 'object' ? data.price : data;
+      const qty = typeof data === 'object' ? (data.qty || 1) : 1;
+      const label = typeof data === 'object' ? (data.label || extraNames[id] || id) : (extraNames[id] || id);
+      const subtotal = price * qty;
+      total += subtotal;
+      productItems.push({ name: `${label} x ${qty}`, price: subtotal });
+    }
+
+    if (state.special) {
+      const qty = state.special.qty || 1;
+      const subtotal = state.special.price * qty;
+      total += subtotal;
+      productItems.push({ name: state.special.name + (qty > 1 ? ` ×${qty}` : ''), price: subtotal });
+    }
+
+    if (state.urgent) {
+      const subtotal = state.urgentQty * 1000;
+      total += subtotal;
+      productItems.push({ name: `加急服務 ×${state.urgentQty}張`, price: subtotal });
+    }
+
+    return { total, drawingItems, productItems };
+  }
+
+  function buildLineMessage() {
+    const { total, drawingItems, productItems } = getCurrentQuoteData();
+
+    const lines = [
+      '您好，我剛剛使用了價目試算器。',
+      '',
+      '【繪製項目】'
+    ];
+
+    if (drawingItems.length > 0) {
+      drawingItems.forEach(item => lines.push(`• ${item.name} × ${item.qty}`));
+    } else {
+      lines.push('• 無');
+    }
+
+    lines.push('', '【加購產品】');
+    if (productItems.length > 0) {
+      productItems.forEach(item => lines.push(`• ${item.name}`));
+    } else {
+      lines.push('• 無');
+    }
+
+    lines.push(
+      '',
+      '【試算總價】',
+      `NT$${total.toLocaleString()}`,
+      '',
+      '想進一步討論委託細項，謝謝。'
+    );
+
+    return { message: lines.join('\n'), total };
+  }
+
+  function sendQuoteToLine() {
+    const { message, total } = buildLineMessage();
+    if (total <= 0) {
+      alert('請先選擇繪製項目或加購產品，再將報價傳送到 LINE。');
+      return;
+    }
+
+    const officialId = LINE_OFFICIAL_ID.trim();
+    const lineUrl = officialId
+      ? `https://line.me/R/oaMessage/${encodeURIComponent(officialId)}/?${encodeURIComponent(message)}`
+      : LINE_FALLBACK_URL;
+
+    window.open(lineUrl, '_blank');
   }
 
   // Compute & update
